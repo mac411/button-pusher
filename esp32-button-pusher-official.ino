@@ -6,7 +6,7 @@
 // IO stuff
 const int WIFI_LED_PIN = 2;
 const int N = 6;
-const int pins[N] = {32, 33, 25, 26, 27, 14};
+const int pins[N] = {14, 27, 26, 25, 33, 32};
 
 // Servo angle parameters (microseconds)
 const int MIN_ANGLE = 500;
@@ -15,7 +15,9 @@ const int MID_ANGLE = 1500;
 
 // Button press characterization
 const int NEUTRAL = MAX_ANGLE;
-const int PRESS = 2100; // ~36 deg
+const int PRESS = 2055; // ~40 deg
+const int PRESS_ERROR_OFFSET[N] = {-50, -25, 0, 50, -50, 0};
+int PRESS_CORRECTED[N]; // initialized in setup
 const int PRESS_DELAY = 300; // ms 
 
 Servo servos[N];
@@ -26,9 +28,9 @@ WebServer server(80);
 
 // Helper fns
 void pressButton(int i) {
-    Serial.println("Some mf command received (in pressButton)");
+    // Serial.println("Some mf command received (in pressButton)");
     servos[i].attach(pins[i]);
-    servos[i].writeMicroseconds(PRESS);
+    servos[i].writeMicroseconds(PRESS_CORRECTED[i]);
     delay(PRESS_DELAY);
     servos[i].writeMicroseconds(NEUTRAL);
     delay(PRESS_DELAY);
@@ -36,10 +38,10 @@ void pressButton(int i) {
 }
 
 void execute(const bool desired[N]) {
-    Serial.println("Some mf command received (in execute)");
+    // Serial.println("Some mf command received (in execute)");
     for(int i = 0; i<N; i++) {
-        Serial.printf("idx %d  cur=%d  des=%d  xor=%d\n",
-                      i,state[i],desired[i],state[i]^desired[i]);
+        // Serial.printf("idx %d  cur=%d  des=%d  xor=%d\n",
+        //               i,state[i],desired[i],state[i]^desired[i]);
         if(state[i]^desired[i]) {
             pressButton(i);
             state[i] = desired[i];
@@ -50,9 +52,18 @@ void execute(const bool desired[N]) {
 // ---------- http ----------
 const char HTML[] PROGMEM = R"raw(
 <!doctype html><html><head><meta charset=utf-8>
-<title>speaker panel</title><style>
-body{font-family:sans-serif} .b{width:90px;height:40px;margin:4px;border:none;
-color:#fff;font-size:16px} .on{background:#2a9d8f}.off{background:#555}
+<title>Speaker Selector</title><style>
+body{font-family:sans-serif}
+.b {
+  padding: 8px 12px;
+  height: auto;
+  min-height: 40px;
+  margin: 4px;
+  border: none;
+  color: #fff;
+  font-size: 16px;
+  white-space: nowrap;
+} .on{background:#2a9d8f}.off{background:#555}
 .busy{background:#e76f51}
 </style></head><body>
 <h2>zones</h2><div id=buttons></div>
@@ -66,12 +77,13 @@ color:#fff;font-size:16px} .on{background:#2a9d8f}.off{background:#555}
 <script>
 const N=6; let s=[0,0,0,0,0,0], busy=false;
 
+const roomNames = ["Kitchen", "Basement", "Master Bed", "Loft", "Patio", "Living Room"];
 function draw(){
   const d=document.getElementById('buttons'); d.innerHTML='';
   for(let i=0;i<N;i++){
     const btn=document.createElement('button');
     btn.className='b '+(busy?'busy':(s[i]?'on':'off'));
-    btn.textContent='zone '+(i+1);
+    btn.textContent=`${roomNames[i]} (${s[i] ? "ON" : "OFF"})`;
     btn.disabled=busy;
     btn.onclick=()=>send(desiredArr(i));
     d.appendChild(btn);
@@ -144,6 +156,10 @@ void setup() {
     digitalWrite(WIFI_LED_PIN, HIGH);
     Serial.print("ESP32 IP Address: ");
     Serial.println(WiFi.localIP());
+
+    for (int i = 0; i < N; i++) {
+        PRESS_CORRECTED[i] = PRESS + PRESS_ERROR_OFFSET[i];
+    }
 
     server.on("/", root);
     server.on("/stat", status);
